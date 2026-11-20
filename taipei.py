@@ -782,20 +782,19 @@ def run_terminal(args):
 
 
 # ------------------------------------------------------------------ music
-# An original soundtrack, synthesised from scratch and timed to the stages:
-# a soft pad on the IV-V-iii-vi progression in D major, a rising note for
-# every part of 101, a chime run when the lights come on, ticks for the
-# countdown, then a pentatonic melody with fireworks booming where they burst.
+# An original soundtrack, synthesised from scratch and timed to the stages.
+# Warm and unhurried: felt piano, a music box and soft strings on the
+# I-V-vi-iii-IV-I-IV-V progression in D major (60 BPM, one chord every
+# two seconds), a gentle heartbeat instead of drums, and the fireworks
+# heard from far away.
 SR = 44100
-ROYAL = [([55, 59, 62, 66], 43), ([57, 61, 64, 69], 45),   # Gmaj7, A
-         ([54, 57, 61, 64], 42), ([59, 62, 66, 69], 47)]   # F#m7, Bm7
-FINALE = [([62, 66, 69, 74], 38), ([61, 64, 69, 73], 37),  # D, A/C#
-          ([59, 62, 66, 69], 35), ([55, 59, 62, 66], 31)]  # Bm7, Gmaj7
-MELODY = [(0, 74, 1), (1, 76, .5), (1.5, 78, .5), (2, 81, 1.5), (3.5, 78, .5),   # beats, note, length
-          (4, 76, 1), (5, 74, .5), (5.5, 76, .5), (6, 78, 2),
-          (8, 81, 1), (9, 83, .5), (9.5, 81, .5), (10, 78, 1), (11, 76, 1),
-          (12, 74, .5), (12.5, 76, .5), (13, 74, .5), (13.5, 71, .5), (14, 74, 2)]
-PENTA_HIGH = [86, 88, 90, 93, 95]   # D E F# A B, sixth octave
+D, A_CS, BM, FSM = ([62, 66, 69, 76], 38), ([61, 64, 69, 73], 37), ([59, 62, 66, 69], 35), ([57, 61, 64, 69], 42)
+G, D_FS, GADD9, A = ([55, 59, 62, 66], 43), ([57, 62, 66, 69], 42), ([55, 59, 62, 69], 43), ([57, 61, 64, 69], 45)
+CHORDS = [(0, D), (2, A_CS), (4, BM), (6, FSM), (8, G), (10, D_FS), (12, GADD9), (14, A),
+          (16, D), (18, A_CS), (20, BM), (22, FSM), (24, G), (26.5, A),
+          (29, D), (31, A_CS), (33, G), (35, A), (37, ([62, 66, 69, 73, 76], 38))]
+MELODY = [(0, 69, 1), (1, 74, 1), (2, 76, 1.5), (3.5, 73, .5), (4, 74, 1), (5, 71, .5), (5.5, 69, .5),
+          (6, 71, .5), (6.5, 73, .5), (7, 76, 1), (8, 74, 2.5)]   # seconds after midnight, note, length
 
 
 def hz(m):
@@ -817,41 +816,53 @@ def band(x, lo=None, hi=None):
     return np.fft.irfft(X, len(x))
 
 
-def bell(f, dur=2.5, ratio=3.5, depth=2.2):
-    t = tline(dur)
-    mod = np.sin(2 * np.pi * f * ratio * t) * depth * np.exp(-t / 0.35)
-    return np.sin(2 * np.pi * f * t + mod) * np.exp(-t / 0.8) * np.minimum(1, t / 0.004)
+def piano(m, dur=3.0, bright=0.55):
+    """A soft felt piano: decaying harmonics, the high ones fading first."""
+    f, t = hz(m), tline(dur)
+    s = np.zeros_like(t)
+    for k in range(1, 9):
+        for det, amp in ((1.0, 1.0), (1.0016, 0.35)):
+            s += amp * np.sin(2 * np.pi * f * k * det * (1 + 0.0004 * k * k) * t) * bright ** (k - 1) / k * np.exp(-t * (0.7 + 0.6 * k))
+    return s * np.minimum(1, t / 0.008) * np.clip((dur - t) / 0.3, 0, 1)
 
 
-def pluck(f, dur=1.2):
-    t = tline(dur)
-    s = sum(np.sin(2 * np.pi * f * k * t) * np.exp(-t * (2.5 + 2.0 * k)) / k for k in range(1, 7))
+def musicbox(m, dur=2.0):
+    f, t = hz(m), tline(dur)
+    s = (np.sin(2 * np.pi * f * t) * np.exp(-t / 0.9) + 0.22 * np.sin(2 * np.pi * f * 4.07 * t) * np.exp(-t / 0.2)
+         + 0.12 * np.sin(2 * np.pi * f * 2 * t) * np.exp(-t / 0.45))
+    return s * np.minimum(1, t / 0.002)
+
+
+def harp(m, dur=2.0):
+    f, t = hz(m), tline(dur)
+    s = sum(np.sin(2 * np.pi * f * k * t) * np.exp(-t * (1.2 + 1.5 * k)) / k ** 1.5 for k in range(1, 6))
     return s * np.minimum(1, t / 0.003)
 
 
-def pad(notes, dur, attack=0.8, release=1.2):
+def strings(notes, dur, attack=1.2, release=1.5):
+    """Soft string section: detuned, mellow saw-like voices with a slow swell."""
     t = tline(dur + release)
     s = np.zeros_like(t)
     for m in notes:
-        for det in (-0.0018, 0.0, 0.0021):
+        for det in (-0.003, 0.0, 0.0027):
             w = 2 * np.pi * hz(m) * (1 + det) * t + det * 900
-            s += np.sin(w) + 0.25 * np.sin(2 * w)
+            s += sum(np.sin(k * w) / k ** 1.8 for k in range(1, 6))
     env = np.minimum(1, t / attack) * np.clip((dur + release - t) / release, 0, 1)
-    return s * env * (1 + 0.08 * np.sin(2 * np.pi * 0.3 * t)) / (3 * len(notes))
+    vib = 1 + 0.05 * np.sin(2 * np.pi * 0.25 * t)
+    return s * env * vib / (3 * len(notes))
 
 
 def bass(m, dur):
-    t = tline(dur + 0.15)
+    t = tline(dur + 0.4)
     w = 2 * np.pi * hz(m) * t
-    env = (np.minimum(1, t / 0.008) * (0.6 + 0.4 * np.exp(-t / 0.25))
-           * np.clip((dur + 0.15 - t) / 0.15, 0, 1))
-    return np.tanh(1.4 * (np.sin(w) + 0.35 * np.sin(2 * w) + 0.12 * np.sin(3 * w)) * env)
+    env = np.minimum(1, t / 0.03) * (0.7 + 0.3 * np.exp(-t / 0.6)) * np.clip((dur + 0.4 - t) / 0.4, 0, 1)
+    return (np.sin(w) + 0.2 * np.sin(2 * w)) * env
 
 
-def kick():
+def heartbeat():
     t = tline(0.5)
-    f = 46 + 90 * np.exp(-t / 0.04)
-    return np.sin(2 * np.pi * np.cumsum(f) / SR) * np.exp(-t / 0.20)
+    f = 42 + 40 * np.exp(-t / 0.05)
+    return np.sin(2 * np.pi * np.cumsum(f) / SR) * np.exp(-t / 0.16)
 
 
 def noise_hit(rng, dur, tau, lo=None, hi=None):
@@ -860,20 +871,16 @@ def noise_hit(rng, dur, tau, lo=None, hi=None):
     return n / (np.abs(n).max() + 1e-9) * np.exp(-t / tau)
 
 
-def snare(rng):
-    t = tline(0.35)
-    return 0.7 * noise_hit(rng, 0.35, 0.09, lo=1200, hi=9000) + 0.5 * np.sin(2 * np.pi * 185 * t) * np.exp(-t / 0.05)
+def far_boom(rng):
+    """A firework heard from across the river: mostly low rumble."""
+    t = tline(2.5)
+    low = np.sin(2 * np.pi * np.cumsum(36 + 40 * np.exp(-t / 0.08)) / SR) * np.exp(-t / 0.5)
+    return 0.7 * low + noise_hit(rng, 2.5, 0.7, hi=180)
 
 
-def boom(rng, size=1.0):
-    t = tline(2.2)
-    low = np.sin(2 * np.pi * np.cumsum(38 + 60 * np.exp(-t / 0.06)) / SR) * np.exp(-t / (0.35 * size))
-    return 0.8 * low + 0.9 * noise_hit(rng, 2.2, 0.45 * size, hi=320)
-
-
-def crackle(rng, dur, density=60):
+def crackle(rng, dur, density=40):
     out = np.zeros(int(dur * SR))
-    click = noise_hit(rng, 0.006, 0.0015, lo=2000)
+    click = noise_hit(rng, 0.006, 0.0015, lo=1500, hi=6000)
     for _ in range(int(density * dur)):
         u = rng.random() ** 1.6   # more pops early on
         i = int(u * (len(out) - len(click)))
@@ -881,26 +888,9 @@ def crackle(rng, dur, density=60):
     return out
 
 
-def whistle(dur=0.8):
-    t = tline(dur)
-    f = 900 + 900 * (t / dur) ** 1.5 + 25 * np.sin(2 * np.pi * 11 * t)
-    return np.sin(2 * np.pi * np.cumsum(f) / SR) * np.sin(np.pi * t / dur) ** 2
-
-
-def riser(rng, dur):
-    n = rng.standard_normal(int(dur * SR))
-    chunk = SR // 10
-    out = np.zeros_like(n)
-    for i in range(0, len(n), chunk):
-        cut = 400 * 20 ** (i / len(n))
-        out[i: i + chunk] = band(n[i: i + chunk], lo=200, hi=cut)
-    ramp = (np.arange(len(n)) / len(n)) ** 2
-    return out / (np.abs(out).max() + 1e-9) * ramp
-
-
-def reverb(x, rng, decay=1.8):
+def reverb(x, rng, decay=2.6):
     t = tline(decay * 1.3)
-    ir = band(rng.standard_normal(len(t)), hi=5000) * np.exp(-t * 6.9 / decay)
+    ir = band(rng.standard_normal(len(t)), hi=4000) * np.exp(-t * 6.9 / decay)
     N = 1 << (len(x) + len(ir) - 1).bit_length()
     y = np.fft.irfft(np.fft.rfft(x, N) * np.fft.rfft(ir, N), N)[: len(x)]
     return y * (np.sqrt(np.mean(x ** 2)) / (np.sqrt(np.mean(y ** 2)) + 1e-12))
@@ -923,100 +913,75 @@ def make_music(scene, seed=8):
         bus[to][0, i:j] += sig[: j - i] * gain * math.cos(a)
         bus[to][1, i:j] += sig[: j - i] * gain * math.sin(a)
 
-    def groove(t0, t1, gain=1.0):
-        t = t0
-        while t < t1 - 1e-6:
-            for off in (0, 0.75, 1.0):
-                add(t + off, kick(), 0.55 * gain)
-            for off in (0.5, 1.5):
-                add(t + off, snare(rng), 0.22 * gain, 0.1)
-            for k in range(8):
-                add(t + k * 0.25 + (0.03 if k % 2 else 0), noise_hit(rng, 0.08, 0.02, lo=7000),
-                    (0.10 if k % 2 == 0 else 0.06) * gain, -0.3)
-            t += 2.0
+    spans = [(t0, (CHORDS[k + 1][0] if k + 1 < len(CHORDS) else LOOP) - t0, ch) for k, (t0, ch) in enumerate(CHORDS)]
+    for t0, dur, (notes, root) in spans:
+        # strings all the way through, swelling towards midnight
+        if t0 < 6:
+            g = 0.10 + 0.03 * t0
+        elif t0 < 24:
+            g = 0.26
+        elif t0 < 29:
+            g = 0.30 if t0 < 26 else 0.38
+        else:
+            g = 0.40
+        add(t0, strings(notes, dur, attack=1.6 if t0 in (24, 26.5) else 1.0), g)
+        if t0 >= 8:
+            add(t0, bass(root, dur - 0.1), 0.22 if t0 < 29 else 0.26)
+        # felt piano: a slow broken chord, like a lullaby
+        if 6 <= t0 < 24:
+            seq = [notes[0] - 12, notes[1], notes[2], notes[3]]
+            for k, m in enumerate(seq):
+                add(t0 + 0.5 * k, piano(m, 2.6), (0.30, 0.22, 0.22, 0.20)[k], -0.25 + 0.15 * k)
+        if t0 >= 29:   # after midnight: the whole chord rolled, then broken
+            for k, m in enumerate(notes):
+                add(t0 + 0.04 * k, piano(m - 12, 3.0), 0.12, -0.3 + 0.15 * k)
+            for k, m in enumerate([notes[1], notes[2], notes[3]]):
+                add(t0 + 0.5 + 0.5 * k, piano(m, 2.2), 0.13, 0.2 - 0.15 * k)
 
-    def arp(t0, t1, chords, gain):
-        t, bar = t0, 0
-        while t < t1 - 1e-6:
-            notes = chords[bar % len(chords)][0]
-            seq = notes + [notes[0] + 12]
-            for k, idx in enumerate([0, 1, 2, 3, 4, 3, 2, 1]):
-                add(t + k * 0.25, pluck(hz(seq[idx] + 12)), gain * (1.0 if k % 2 == 0 else 0.7), 0.35 - 0.1 * idx)
-            t += 2.0
-            bar += 1
-
-    def bassline(t0, t1, chords, gain):
-        t, bar = t0, 0
-        while t < t1 - 1e-6:
-            root = chords[bar % len(chords)][1]
-            for off, d in ((0, 0.7), (0.75, 0.2), (1.0, 0.9)):
-                add(t + off, bass(root, d), gain)
-            t += 2.0
-            bar += 1
-
-    # night sky: pad fades in, stars twinkle as little bells
-    for bar in range(12):
-        notes, _ = ROYAL[bar % 4]
-        add(bar * 2.0, pad(notes, 2.0), 0.20 * min(1.0, 0.75 + bar * 0.1), 0.0)
-    add(0.0, bass(43, 1.9), 0.10)
-    for _ in range(12):
-        add(rng.uniform(0.3, 5.8), bell(hz(rng.choice(PENTA_HIGH)), 2.0), 0.09, rng.uniform(-0.8, 0.8))
-    # the city wakes up
-    bassline(6.0, 24.0, ROYAL[3:] + ROYAL[:3], 0.20)
-    arp(6.0, 13.0, ROYAL[3:] + ROYAL[:3], 0.07)
-    add(10.0, bell(hz(45), 4.0, ratio=1.41, depth=1.5), 0.10)   # a temple-gong for the Grand Hotel
-    # Taipei 101 rises: one note per floor block, climbing the pentatonic scale
-    for k, m in enumerate([57, 59, 62, 64, 66, 69, 71, 74, 76, 78]):
-        add(13.0 + k * 0.5, pluck(hz(m)), 0.16, -0.5 + k * 0.1)
-        add(13.0 + k * 0.5, bell(hz(m + 12), 1.2), 0.04, -0.5 + k * 0.1)
-    for k in range(16):   # hats come in, then a snare roll into the lights
-        add(14.0 + k * 0.25, noise_hit(rng, 0.08, 0.02, lo=7000), 0.05, -0.3)
-    for k in range(8):
-        add(17.0 + k * 0.125, snare(rng), 0.05 + 0.03 * k, 0.1)
-    # the lights come on: a chime run, then the beat
-    for k, m in enumerate([74, 76, 78, 81, 83, 86, 88, 90, 93]):
-        add(18.0 + k * 0.1, bell(hz(m), 2.5), 0.10, -0.8 + k * 0.2)
-    add(18.0, noise_hit(rng, 2.5, 1.0, lo=4000), 0.10)
-    groove(18.0, 24.0)
-    arp(18.0, 24.0, ROYAL[1:] + ROYAL[:1], 0.06)
-    # a meteor: a quick falling shimmer
-    for k, m in enumerate([95, 93, 90, 88, 86]):
-        add(METEOR + 0.1 + k * 0.08, bell(hz(m), 1.2), 0.05, 0.3 - k * 0.12)
-    # countdown: suspended chord, ticks that climb, a heartbeat and a riser
-    add(24.0, pad([57, 62, 64, 69], 2.5, attack=0.3, release=0.6), 0.16)
-    add(26.5, pad([57, 61, 64, 67], 2.5, attack=0.3, release=0.4), 0.16)
-    add(24.0, bass(33, 4.9), 0.18)
-    for k, m in enumerate([69, 71, 73, 76, 78]):
-        add(24.0 + k, bell(hz(m), 0.9, ratio=2.0, depth=1.0), 0.20)
-        add(24.0 + k, kick(), 0.35)
-    add(26.0, riser(rng, 3.0), 0.12)
-    # midnight: impact, then the melody over D - A/C# - Bm - G
-    add(29.0, kick(), 0.9)
-    add(29.0, noise_hit(rng, 3.0, 1.1, lo=3000), 0.18)
-    for k, (notes, root) in enumerate(FINALE):
-        add(29.0 + 2 * k, pad(notes, 2.0, attack=0.2), 0.18)
-    bassline(29.0, 37.0, FINALE, 0.22)
-    groove(29.0, 37.0)
-    arp(29.0, 37.0, FINALE, 0.04)
+    # night sky: a music box picks out the stars
+    for k in range(11):
+        t = 0.4 + k * 0.5
+        notes = [m for s, (ns, _) in CHORDS if s <= t for m in [ns]][-1]
+        add(t, musicbox(rng.choice(notes) + 24, 2.2), 0.07, rng.uniform(-0.7, 0.7))
+    add(10.0, harp(50, 3.0), 0.10)                       # a low chime for the Grand Hotel
+    add(10.0, musicbox(74 + 12, 3.0), 0.05)
+    # Taipei 101 rises: one music-box note per block, climbing
+    for k, m in enumerate([69, 71, 74, 76, 78, 81, 83, 86, 88, 90]):
+        add(13.0 + k * 0.5, musicbox(m, 1.6), 0.10, -0.5 + k * 0.1)
+    # Pachelbel's falling line (F# E D C#) as the city lights up
+    for t, m in ((16, 78), (18, 76), (20, 74), (22, 73)):
+        add(t, piano(m, 2.4, bright=0.6), 0.26, 0.1)
+        add(t, musicbox(m + 12, 2.0), 0.05, 0.3)
+    for k, m in enumerate([62, 64, 66, 69, 71, 74, 76, 78, 81, 83, 86]):   # a harp run when the lights come on
+        add(18.0 + k * 0.07, harp(m, 2.2), 0.10, -0.7 + k * 0.14)
+    for k in range(int((24 - 18) / 0.5)):        # a quiet shaker keeps it moving
+        add(18.0 + k * 0.5 + 0.25, noise_hit(rng, 0.09, 0.035, lo=5000, hi=11000), 0.035, 0.35)
+    for k, m in enumerate([93, 90, 88, 86, 81]):   # a meteor
+        add(METEOR + 0.1 + k * 0.09, musicbox(m, 1.5), 0.05, 0.3 - k * 0.12)
+    # countdown: a music-box tick and a heartbeat each second, climbing
+    for k, m in enumerate([81, 83, 85, 86, 88]):
+        add(24.0 + k, musicbox(m, 1.2), 0.14)
+        add(24.0 + k, heartbeat(), 0.22 + 0.04 * k)
+    # midnight: the melody, doubled softly an octave up
     for b, m, d in MELODY:
-        add(29.0 + b * 0.5, bell(hz(m), 0.5 + d, ratio=2.0, depth=1.2), 0.22, 0.05)
-        add(29.0 + b * 0.5, pluck(hz(m)), 0.10, -0.05)
-    add(37.0, pad([62, 64, 66, 69, 74], 2.0, attack=0.1, release=1.5), 0.20)
-    add(37.0, bass(38, 1.8), 0.20)
-    add(37.0, bell(hz(86), 3.0), 0.10)
+        add(29.0 + b, piano(m, d + 1.6, bright=0.62), 0.30, 0.05)
+        add(29.0 + b, musicbox(m + 12, d + 1.0), 0.06, -0.2)
+    for k in range(4):
+        add(29.0 + 2 * k, heartbeat(), 0.22)
+    for k in range(16):
+        add(29.25 + k * 0.5, noise_hit(rng, 0.09, 0.035, lo=5000, hi=11000), 0.03, 0.35)
+    for k, m in enumerate([62, 66, 69, 73, 76, 81, 86]):   # the last chord, rolled up into the stars
+        add(37.0 + k * 0.12, musicbox(m + 12, 2.5) if k > 3 else piano(m, 2.5), 0.08, -0.4 + k * 0.13)
 
-    # fireworks, panned to where they burst
+    # fireworks, far away and panned to where they burst
     for tb, x0, y0, hue, ang, spd, life in scene.shells:
-        pan = 0.85 * (2 * x0 / scene.w - 1)
+        pan = 0.7 * (2 * x0 / scene.w - 1)
         big = life > 2.0
-        add(tb - 0.8, whistle(), 0.025, pan, "sfx")
-        add(tb, boom(rng, 1.6 if big else 1.0), 0.75 if big else rng.uniform(0.35, 0.5), pan, "sfx")
-        add(tb + 0.3, crackle(rng, 2.0 if big else 1.4, 90 if big else 50), 0.22 if big else 0.14, pan, "sfx")
-    for tb in sorted({round(f[0], 2) for f in scene.flares}):
-        add(tb, noise_hit(rng, 0.9, 0.35, lo=2500), 0.04, 0.85 * (2 * scene.x101 / scene.w - 1), "sfx")
+        add(tb + 0.05, far_boom(rng), 0.30 if big else rng.uniform(0.14, 0.2), pan, "sfx")
+        add(tb + 0.35, crackle(rng, 1.8 if big else 1.2, 60 if big else 35), 0.06 if big else 0.035, pan, "sfx")
 
     out = np.zeros((2, n))
-    for name, wet in (("music", 0.35), ("sfx", 0.25)):
+    for name, wet in (("music", 0.55), ("sfx", 0.45)):
         for ch in range(2):
             x = bus[name][ch]
             out[ch] += x + wet * reverb(x, rng)
@@ -1024,7 +989,7 @@ def make_music(scene, seed=8):
     fade = np.where(t > FADE, 1 - np.clip((t - FADE) / (LOOP - FADE), 0, 1) ** 1.5, 1.0)
     out *= fade * np.minimum(1, t / 0.05)
     out /= np.abs(out).max() + 1e-9
-    return np.tanh(1.6 * out) / np.tanh(1.6) * 0.95
+    return np.tanh(1.3 * out) / np.tanh(1.3) * 0.95
 
 
 def write_wav(path, stereo):
