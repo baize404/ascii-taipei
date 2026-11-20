@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ASCII Taipei · 台北夜景</title>
+<meta name="description" content="用彩色 ASCII 字元一筆一筆畫出的台北夜景：觀音山、淡水河、圓山大飯店、101 倒數和跨年煙火。">
+<meta name="theme-color" content="#03040b">
+<meta property="og:title" content="ASCII Taipei · 台北夜景">
+<meta property="og:description" content="用彩色 ASCII 字元一筆一筆畫出的台北夜景，最後 101 倒數放煙火。">
+<meta property="og:image" content="https://baize404.github.io/ascii-taipei/preview.png">
+<style>
+  html, body { margin: 0; height: 100%; background: #03040b; overflow: hidden; }
+  body { -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+         font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "DejaVu Sans Mono", monospace; }
+  #main, #glow { position: fixed; left: 0; top: 0; }
+  #glow { pointer-events: none; mix-blend-mode: screen; opacity: .8; filter: blur(var(--blur, 8px)); }
+  .ui { position: fixed; z-index: 2; bottom: max(14px, env(safe-area-inset-bottom)); font: inherit; font-size: 13px;
+        color: #b9c1d9; background: rgba(10, 12, 22, .72); border: 1px solid rgba(150, 160, 200, .3);
+        border-radius: 999px; padding: 9px 15px; text-decoration: none; cursor: pointer;
+        -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+  .ui:hover { color: #fff; border-color: rgba(200, 210, 240, .55); }
+  #sound { right: 14px; }
+  #src { left: 14px; }
+  #paused { position: fixed; z-index: 2; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: #dfe4f2; font-size: 14px; background: rgba(10, 12, 22, .8); padding: 10px 16px;
+            border-radius: 10px; display: none; pointer-events: none; }
+  body.is-paused #paused { display: block; }
+</style>
+</head>
+<body>
+<canvas id="main"></canvas>
+<canvas id="glow"></canvas>
+<button id="sound" class="ui" type="button">♪ 開聲音</button>
+<a id="src" class="ui" href="https://github.com/baize404/ascii-taipei">原始碼</a>
+<div id="paused">暫停中，點一下繼續</div>
+<script>
+"use strict";
+// A browser port of taipei.py: same stages, same layers, same fireworks schedule
+// (so the soundtrack in music.m4a lines up), drawn with fillText on a canvas.
+
+const ASPECT = 2, LOOP = 39, FADE = 37, METEOR = 22.2;
+const STAGES = [["sky", 0, 3], ["mountains", 1.5, 5], ["river", 4, 7], ["city", 6, 11],
+  ["grand_hotel", 10, 13.5], ["taipei101", 13, 18], ["lights", 18, 21.5], ["mrt", 21.5, 24],
+  ["countdown", 24, 29], ["fireworks", 29, 36.5], ["new_year", 30.5, 36.5]];
+const ST = {};
+for (const [n, a, b] of STAGES) ST[n] = [a, b];
+
+const C = {
+  STAR: [.80, .85, 1], MOON: [1, .93, .70], RIDGE: [.36, .44, .68], HILLSIDE: [.13, .16, .28],
+  WALL: [.40, .45, .64], WIN_OFF: [.20, .23, .36], TREES: [.10, .26, .16], HILL: [.22, .42, .28],
+  STONE: [.55, .52, .48], RED: [.90, .16, .12], GOLD: [.98, .70, .18], ORANGE: [.92, .48, .12],
+  AMBER_OFF: [.36, .22, .10], AMBER_ON: [1, .72, .32], GLASS: [.20, .42, .40], GLASS_EDGE: [.38, .62, .58],
+  STEEL: [.62, .66, .74], TRACK: [.30, .32, .44], HUD: [.45, .50, .64], WHITE: [1, 1, 1],
+  RIM: [.55, .62, .80], SPOKE: [.40, .45, .60], BLACK: [0, 0, 0],
+};
+const WIN_ON = [[1, .80, .42], [1, .90, .62], [.92, .95, 1], [.55, .80, 1]];
+const WIN_P = [.45, .25, .18, .12];
+const WATER = [.10, .22, .45];
+const SHELLS = [
+  [1.02, 0.161, 0.231, 0.335, 70, 0.235], [1.16, 0.474, 0.336, 0.316, 54, 0.236],
+  [1.43, 0.894, 0.146, 0.779, 69, 0.175], [1.87, 0.656, 0.165, 0.176, 78, 0.193],
+  [2.14, 0.638, 0.398, 0.087, 51, 0.243], [2.32, 0.371, 0.256, 0.555, 50, 0.187],
+  [2.63, 0.814, 0.258, 0.336, 76, 0.229], [3.05, 0.526, 0.157, 0.511, 61, 0.178],
+  [3.19, 0.355, 0.142, 0.702, 52, 0.245], [3.58, 0.164, 0.209, 0.424, 62, 0.241],
+  [4.00, 0.474, 0.163, 0.906, 52, 0.195], [4.17, 0.233, 0.174, 0.744, 73, 0.194],
+  [4.59, 0.660, 0.244, 0.106, 55, 0.192], [4.87, 0.411, 0.260, 0.713, 63, 0.214],
+  [5.13, 0.697, 0.189, 0.559, 65, 0.202], [5.29, 0.806, 0.361, 0.466, 56, 0.181],
+  [5.68, 0.846, 0.323, 0.623, 75, 0.195], [5.93, 0.493, 0.149, 0.619, 70, 0.242],
+  [6.25, 0.642, 0.317, 0.265, 51, 0.195], [6.70, 0.656, 0.396, 0.189, 74, 0.204],
+];
+const FINALE_SHELL = [6.10, 0.120, 90, 0.298];
+const DIGITS = {
+  1: [".#.", "##.", ".#.", ".#.", "###"], 2: ["###", "..#", "###", "#..", "###"],
+  3: ["###", "..#", ".##", "..#", "###"], 4: ["#.#", "#.#", "###", "..#", "..#"],
+  5: ["###", "#..", "###", "..#", "###"],
+};
+
+const clamp01 = v => Math.min(Math.max(v, 0), 1);
+const smooth = v => { v = clamp01(v); return v * v * (3 - 2 * v); };
+const prog = (n, t) => clamp01((t - ST[n][0]) / (ST[n][1] - ST[n][0]));
+const scale = (c, k) => [c[0] * k, c[1] * k, c[2] * k];
+const hash01 = (a, b) => { const v = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453; return v - Math.floor(v); };
+const dirChar = deg => (deg < 22.5 || deg >= 157.5) ? "-" : deg < 67.5 ? "\\" : deg < 112.5 ? "|" : "/";
+function hsv(h, s, v) {
+  h = ((h % 1) + 1) % 1;
+  const i = Math.floor(h * 6), f = h * 6 - i, p = v * (1 - s), q = v * (1 - s * f), u = v * (1 - s * (1 - f));
+  return [[v, u, p], [q, v, p], [p, v, u], [p, q, v], [u, p, v], [v, p, q]][i % 6];
+}
+function makeRng(seed) {   // mulberry32
+  let a = seed >>> 0;
+  const next = () => {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  return {
+    random: next,
+    uniform: (lo, hi) => lo + (hi - lo) * next(),
+    int: (lo, hi) => lo + Math.floor(next() * (hi - lo)),
+    pick: arr => arr[Math.floor(next() * arr.length)],
+  };
+}
+function edgeChar(top, left, right) {
+  if (left > top && right > top) return "^";
+  if (left > top) return "/";
+  if (right > top) return "\\";
+  return "_";
+}
+
+// ------------------------------------------------------------------ layers
+class Layer {   // a character, a colour and a reveal order per cell; Infinity = empty
+  constructor(h, w) {
+    this.h = h; this.w = w;
+    this.ch = new Uint16Array(h * w).fill(32);
+    this.rgb = new Float32Array(h * w * 3);
+    this.order = new Float32Array(h * w).fill(Infinity);
+  }
+  put(y, x, c, rgb, o) {
+    if (y < 0 || y >= this.h || x < 0 || x >= this.w) return;
+    const i = y * this.w + x;
+    this.ch[i] = c.charCodeAt(0); this.order[i] = o;
+    this.rgb[3 * i] = rgb[0]; this.rgb[3 * i + 1] = rgb[1]; this.rgb[3 * i + 2] = rgb[2];
+  }
+}
+class Frame {
+  constructor(h, w) {
+    this.h = h; this.w = w;
+    this.ch = new Uint16Array(h * w);
+    this.rgb = new Float32Array(h * w * 3);
+  }
+  clear() { this.ch.fill(32); this.rgb.fill(0); }
+  blit(L, p, tip = 0.05) {   // show cells whose order <= p; the newest ones flash like a pen tip
+    if (p <= 0) return;
+    const n = this.h * this.w;
+    for (let i = 0; i < n; i++) {
+      const o = L.order[i];
+      if (o > p) continue;
+      this.ch[i] = L.ch[i];
+      let r = L.rgb[3 * i], g = L.rgb[3 * i + 1], b = L.rgb[3 * i + 2];
+      if (p < 1 && tip > 0 && o > p - tip) { r = r * .3 + .85; g = g * .3 + .85; b = b * .3 + .85; }
+      this.rgb[3 * i] = r; this.rgb[3 * i + 1] = g; this.rgb[3 * i + 2] = b;
+    }
+  }
+  put(y, x, c, rgb) {
+    y = Math.round(y); x = Math.round(x);
+    if (y < 0 || y >= this.h || x < 0 || x >= this.w) return;
+    const i = y * this.w + x;
+    this.ch[i] = c.charCodeAt(0);
+    this.rgb[3 * i] = rgb[0]; this.rgb[3 * i + 1] = rgb[1]; this.rgb[3 * i + 2] = rgb[2];
+  }
+  spark(y, x, c, rgb) {   // only if brighter than what is already there
+    y = Math.round(y); x = Math.round(x);
+    if (y < 0 || y >= this.h || x < 0 || x >= this.w) return;
+    const i = y * this.w + x;
+    if (Math.max(rgb[0], rgb[1], rgb[2]) >= Math.max(this.rgb[3 * i], this.rgb[3 * i + 1], this.rgb[3 * i + 2]))
+      this.put(y, x, c, rgb);
+  }
+  text(y, x, s, rgb) { for (let i = 0; i < s.length; i++) if (s[i] !== " ") this.put(y, x + i, s[i], rgb); }
+}
+
+// ------------------------------------------------------------------ scene
+class Scene {
+  constructor(w, h, seed = 101) {
+    this.w = w; this.h = h;
+    this.hz = Math.round(h * 0.70);
+    this.S = h * ASPECT;
+    this.Sx = Math.min(this.S, 1.1 * w);
+    this.x101 = Math.round(w * 0.77); this.xhotel = Math.round(w * 0.22); this.xwheel = Math.round(w * 0.52);
+    const now = new Date();
+    this.year = now.getMonth() <= 1 ? now.getFullYear() : now.getFullYear() + 1;
+    const rng = makeRng(seed);
+    this.buildStars(rng);
+    this.mountains = this.buildMountains(rng);
+    [this.city, this.cityWin] = this.buildCity(rng);
+    [this.hotel, this.hotelWin] = this.buildHotel(rng);
+    this.t101 = this.build101();
+    this.viaduct = this.buildViaduct();
+    this.buildFireworks();
+    this.F = new Frame(h, w);
+  }
+
+  buildStars(rng) {
+    const n = Math.floor(this.w * this.hz * 0.025);
+    this.stars = [];
+    for (let i = 0; i < n; i++)
+      this.stars.push([rng.int(0, this.hz - 2), rng.int(0, this.w), rng.uniform(0, 2 * Math.PI), rng.uniform(1, 3), rng.random()]);
+  }
+
+  buildMountains(rng) {   // Guanyin Mountain on the left, lower hills across the rest
+    const { w: W, h: H, hz } = this, L = new Layer(H, W);
+    const bump = (x, c, s, a) => a * Math.exp(-(((x - c) / s) ** 2));
+    const ridge = [];
+    for (let xi = 0; xi < W; xi++) {
+      const x = xi / (W - 1);
+      const prof = bump(x, .04, .07, .24) + bump(x, .15, .06, .33) + bump(x, .30, .08, .25)
+        + bump(x, .42, .06, .10) + bump(x, .62, .20, .05) + bump(x, .95, .09, .10) + .02;
+      ridge.push(Math.min(Math.max(Math.round(hz - 1 - prof * this.Sx / ASPECT), 1), hz - 1));
+    }
+    for (let xi = 0; xi < W; xi++) {
+      const top = ridge[xi], left = xi > 0 ? ridge[xi - 1] : top, right = xi < W - 1 ? ridge[xi + 1] : top;
+      const c = edgeChar(top, left, right), low = Math.max(top, Math.max(left, right) - 1);
+      for (let y = top; y < hz; y++) {
+        const o = 0.92 * xi / W + 0.08 * (y - top) / Math.max(1, hz - top);
+        if (y <= low) L.put(y, xi, (y === top || c !== "^") ? c : (left >= right ? "/" : "\\"), C.RIDGE, o);
+        else if (rng.random() < 0.16) L.put(y, xi, rng.pick([".", ":", "'"]), scale(C.HILLSIDE, 1 - 0.4 * (y - top) / Math.max(1, hz - top)), o);
+        else L.put(y, xi, " ", C.BLACK, o);
+      }
+    }
+    return L;
+  }
+
+  building(L, win, rng, x0, bw, bh, st) {
+    const hz = this.hz, top = hz - bh, x1 = x0 + bw - 1;
+    for (let y = top; y < hz; y++) {
+      const o = st + 0.36 * (hz - 1 - y) / Math.max(bh - 1, 1);
+      for (let x = x0; x <= x1; x++) {
+        if (y === top) { if (x > x0 && x < x1) L.put(y, x, "_", C.WALL, o); }
+        else if (x === x0 || x === x1) L.put(y, x, "|", C.WALL, o);
+        else if ((x - x0) % 2 === 1 && (y - top) % 2 === 0) {
+          L.put(y, x, ":", C.WIN_OFF, o);
+          if (rng.random() < 0.8) {
+            let r = rng.random(), k = 0;
+            while (k < 3 && r > WIN_P[k]) { r -= WIN_P[k]; k++; }
+            win.put(y, x, rng.random() < 0.7 ? "#" : "=", WIN_ON[k], rng.random());
+          }
+        } else L.put(y, x, " ", C.BLACK, o);
+      }
+    }
+    if (bh >= 0.15 * this.h && rng.random() < 0.7) {
+      const xc = x0 + Math.floor(bw / 2);
+      L.put(top - 1, xc, "|", C.WALL, st + 0.37);
+      this.blinkers.push([top - 2, xc, L, top - 1, rng.uniform(0, 1)]);
+    }
+  }
+
+  buildCity(rng) {
+    const { w: W, h: H, hz } = this, L = new Layer(H, W), win = new Layer(H, W);
+    this.blinkers = [];
+    let x = 0;
+    while (x < W) {
+      const bw = rng.int(3, 8);
+      const near = Math.exp(-((((x + bw / 2) / W - this.x101 / W) / 0.15) ** 2));
+      const bh = Math.max(3, Math.round(rng.uniform(0.4, 1) * (0.12 + 0.14 * near) * H));
+      this.building(L, win, rng, x, bw, bh, rng.uniform(0, 0.62));
+      x += bw + rng.int(0, 2);
+    }
+    this.wheelR = Math.max(4, Math.round(0.07 * this.Sx));
+    const mw = 2 * this.wheelR + 5;
+    this.mallTop = hz - 4;
+    this.building(L, win, rng, this.xwheel - Math.floor(mw / 2), mw, 4, 0.6);
+    return [L, win];
+  }
+
+  buildHotel(rng) {   // the Grand Hotel on its hill: red columns under a golden double roof
+    const { w: W, h: H, hz } = this, L = new Layer(H, W), win = new Layer(H, W), xc = this.xhotel;
+    const a = Math.max(10, Math.round(0.19 * this.Sx)), b = Math.max(3, Math.round(0.08 * H)), tops = {};
+    for (let x = xc - a - 1; x <= xc + a + 1; x++) {
+      const u = (x - xc) / a;
+      tops[x] = Math.abs(u) <= 1 ? Math.round(hz - 1 - b * Math.sqrt(Math.max(0, 1 - u * u))) : hz;
+    }
+    for (let x = xc - a; x <= xc + a; x++) {
+      const top = tops[x], c = edgeChar(top, tops[x - 1], tops[x + 1]);
+      const low = Math.max(top, Math.max(tops[x - 1], tops[x + 1]) - 1), o = 0.30 * (x - xc + a) / (2 * a);
+      for (let y = top; y < hz; y++) {
+        if (y <= low) L.put(y, x, y === top ? c : (x < xc ? "/" : "\\"), C.HILL, o);
+        else if (rng.random() < 0.35) L.put(y, x, rng.pick([".", ",", ":", "*"]), C.TREES, o);
+        else L.put(y, x, " ", C.BLACK, o);
+      }
+    }
+    const hw = Math.max(6, Math.round(0.115 * this.Sx)), nb = Math.max(2, Math.round(0.045 * H));
+    const spec = [["base", hw + 1]];
+    for (let i = 0; i < nb; i++) spec.push(["body", hw]);
+    spec.push(["eave", hw + 2], ["roof", Math.round(hw * 0.82)], ["floor", Math.round(hw * 0.55)],
+      ["eave", Math.round(hw * 0.62) + 2], ["roof", Math.round(hw * 0.62)], ["ridge", Math.round(hw * 0.40)]);
+    let y = hz - 1 - b;
+    spec.forEach(([kind, half], i) => {
+      const xl = xc - half, xr = xc + half;
+      for (let x = xl; x <= xr; x++) {
+        const o = 0.32 + 0.66 * i / (spec.length - 1) + 0.02 * Math.abs(x - xc) / half;
+        if (kind === "base") L.put(y, x, "=", C.STONE, o);
+        else if (kind === "body" || kind === "floor") {
+          if (x === xl || x === xr || (x - xl) % (kind === "body" ? 3 : 2) === 0) L.put(y, x, "|", C.RED, o);
+          else { L.put(y, x, ":", C.AMBER_OFF, o); win.put(y, x, "#", C.AMBER_ON, rng.uniform(0, 0.7)); }
+        } else if (kind === "eave") L.put(y, x, x === xl ? "`" : x === xr ? "'" : "~", C.ORANGE, o);
+        else if (kind === "roof") {
+          const c = x === xl ? "/" : x === xr ? "\\" : "=";
+          L.put(y, x, c, c === "=" ? C.GOLD : C.ORANGE, o);
+        } else L.put(y, x, (x === xl || x === xr) ? "^" : "-", (x === xl || x === xr) ? C.GOLD : C.RED, o);
+      }
+      y--;
+    });
+    return [L, win];
+  }
+
+  build101() {   // podium, eight flared segments, cap and spire
+    const { w: W, h: H, hz } = this, L = new Layer(H, W);
+    this.segId = new Int8Array(H * W).fill(-1);
+    this.lamp = new Uint8Array(H * W);
+    const xc = this.x101, ytop = Math.max(3, Math.round(0.07 * H)), yb = hz - 1, h = yb - ytop + 1;
+    const spire = Math.max(3, Math.round(0.13 * h)), hs = Math.max(1, Math.floor((h - spire - 2 - 3) / 8));
+    const pod = h - spire - 2 - 8 * hs, wt = Math.max(3, 0.058 * h * ASPECT), wb = wt - 1;
+    const rows = [];
+    let y = yb;
+    for (let j = 0; j < pod; j++) rows.push([y--, "pod", 0, (wt + 1.6) - 2 * j / Math.max(pod - 1, 1), j === pod - 1]);
+    for (let k = 0; k < 8; k++)
+      for (let j = 0; j < hs; j++) rows.push([y--, "seg", k + 1, wb + (wt - wb) * j / Math.max(hs - 1, 1), j === hs - 1]);
+    rows.push([y, "cap", 9, wt * 0.62, false], [y - 1, "cap", 9, wt * 0.42, true]);
+    y -= 2;
+    while (y >= ytop) rows.push([y--, "spire", 9, 0, false]);
+    this.ledges = [];
+    const n = rows.length;
+    rows.forEach(([y, kind, seg, half, ledge], i) => {
+      const o = i / (n - 1);
+      if (kind === "spire") {
+        L.put(y, xc, "|", C.STEEL, o);
+        this.segId[y * W + xc] = seg; this.lamp[y * W + xc] = 1;
+        return;
+      }
+      const hr = Math.floor(half + 0.5), xl = xc - hr, xr = xc + hr;
+      if (ledge && kind === "seg") this.ledges.push([y, xl, xr]);
+      for (let x = xl; x <= xr; x++) {
+        let c, rgb;
+        if (x === xl || x === xr) { c = { pod: "/\\", seg: "\\/", cap: "[]" }[kind][x === xr ? 1 : 0]; rgb = C.GLASS_EDGE; }
+        else if (ledge) { c = "="; rgb = C.GLASS_EDGE; }
+        else { c = (x - xc) % 2 === 0 ? "|" : ":"; rgb = C.GLASS; }
+        L.put(y, x, c, rgb, o + 0.01 * Math.abs(x - xc) / Math.max(hr, 1));
+        if (y >= 0 && y < H && x >= 0 && x < W) {
+          this.segId[y * W + x] = seg;
+          this.lamp[y * W + x] = (x === xl || x === xr || ledge) ? 1 : 0;
+        }
+      }
+    });
+    if (pod >= 3) L.put(yb - pod + 2, xc, "O", C.GOLD, (pod - 2) / (n - 1));   // the giant "ruyi" coin
+    this.spireTop = ytop;
+    this.blinkers.push([ytop - 1, xc, L, ytop, 0]);
+    const mid = rows.filter(r => r[1] === "seg" && (r[2] === 4 || r[2] === 5)).map(r => r[0]);
+    this.digitY = mid.length ? Math.round(mid.reduce((a, b) => a + b, 0) / mid.length) : Math.floor((yb + ytop) / 2);
+    this.digitPw = 2 * Math.floor(wb + 0.5) - 1 >= 6 ? 2 : 1;
+    this.cells101 = [];
+    for (let i = 0; i < H * W; i++) if (this.segId[i] >= 0) this.cells101.push(i);
+    return L;
+  }
+
+  buildViaduct() {
+    const L = new Layer(this.h, this.w);
+    for (let x = 0; x < this.w; x++) {
+      L.put(this.hz - 2, x, "=", C.TRACK, x / this.w);
+      if (x % 11 === 5) L.put(this.hz - 1, x, "|", C.TRACK, x / this.w);
+    }
+    return L;
+  }
+
+  buildFireworks() {
+    const W = this.w, H = this.h, S = Math.sqrt(this.S * this.Sx), t0 = ST.fireworks[0];
+    this.flares = [];   // 101's side-firing flares
+    for (const [start, step, hue] of [[0, 0.10, 0.12], [2.6, -0.10, 0.58], [5.0, 0.08, -1]]) {
+      const order = step > 0 ? this.ledges : [...this.ledges].reverse();
+      order.forEach(([y, xl, xr], i) => {
+        const tb = t0 + start + Math.abs(step) * i, hh = hue < 0 ? i / 8 : hue;
+        this.flares.push([tb, xl - 1, y, -1, hh], [tb, xr + 1, y, 1, hh]);
+      });
+    }
+    this.shells = [];
+    SHELLS.forEach(([dt, xf, yf, hue, n, sp], k) => {
+      const ang = [], spd = [];
+      for (let i = 0; i < n; i++) {
+        ang.push(2 * Math.PI * i / n + 0.3 * hash01(i, k));
+        spd.push((0.7 + 0.3 * hash01(i + 101, k)) * sp * S);
+      }
+      this.shells.push([t0 + dt, xf * W, yf * H, hue, ang, spd, 1.8]);
+    });
+    const [dt, hue, n, sp] = FINALE_SHELL, ang = [], spd = [];
+    for (let i = 0; i < n; i++) {
+      ang.push(2 * Math.PI * i / n);
+      spd.push((0.8 + 0.2 * hash01(i + 101, SHELLS.length)) * sp * S);
+    }
+    this.shells.push([t0 + dt, this.x101, this.spireTop + 2, hue, ang, spd, 2.4]);
+  }
+
+  // ---------------------------------------------------------- per frame
+  render(t) {
+    t = ((t % LOOP) + LOOP) % LOOP;
+    const F = this.F, P = {};
+    F.clear();
+    for (const n in ST) P[n] = prog(n, t);
+    this.drawStars(F, t, P.sky);
+    this.drawMoon(F, t);
+    F.blit(this.mountains, P.mountains);
+    F.blit(this.city, P.city);
+    F.blit(this.cityWin, P.lights, 0);
+    this.drawWheel(F, t, clamp01((P.city - 0.55) / 0.45));
+    F.blit(this.hotel, P.grand_hotel);
+    F.blit(this.hotelWin, P.lights, 0);
+    F.blit(this.t101, P.taipei101);
+    this.light101(F, t, P);
+    this.drawBlinkers(F, t, P);
+    F.blit(this.viaduct, clamp01(P.mrt / 0.4));
+    this.drawTrain(F, t);
+    this.drawMeteor(F, t);
+    this.drawFireworks(F, t);
+    this.drawRiver(F, t, P.river);
+    this.drawGreeting(F, t, P.new_year);
+    this.fade = t > FADE ? 1 - smooth((t - FADE) / (LOOP - FADE)) : 1;
+    if (this.fade < 1) for (let i = 0; i < F.rgb.length; i++) F.rgb[i] *= this.fade;
+    this.drawHud(F, t);
+    return F;
+  }
+
+  drawStars(F, t, p) {
+    for (const [y, x, ph, rate, o] of this.stars) {
+      if (o > p) continue;
+      const b = 0.55 + 0.45 * Math.sin(t * rate + ph);
+      F.put(y, x, b > 0.92 ? "*" : b > 0.7 ? "+" : ".", scale(C.STAR, 0.35 + 0.65 * b));
+    }
+  }
+
+  drawMoon(F, t) {
+    const r = Math.max(4, 0.075 * this.Sx), xm = 0.37 * this.w, yEnd = 0.20 * this.h;
+    const ym = this.hz - 1 - (this.hz - 1 - yEnd) * smooth(t / 6);
+    const y0 = Math.floor(ym - r / ASPECT) - 1, y1 = Math.floor(ym + r / ASPECT) + 2;
+    for (let y = Math.max(0, y0); y < Math.min(this.hz, y1); y++)
+      for (let x = Math.floor(xm - r) - 1; x < Math.floor(xm + r) + 2; x++) {
+        const dx = (x - xm) / r, dy = (y - ym) * ASPECT / r, d = dx * dx + dy * dy;
+        const shadow = (dx + 0.62) ** 2 + (dy - 0.10) ** 2;
+        if (d > 1 || shadow < 0.72) continue;
+        const depth = Math.min(1 - d, shadow - 0.72);
+        F.put(y, x, depth > 0.22 ? "@" : depth > 0.12 ? "#" : depth > 0.05 ? "*" : ".", scale(C.MOON, 0.75 + 0.25 * Math.min(1, depth * 5)));
+      }
+  }
+
+  drawWheel(F, t, p) {   // the Ferris wheel in Dazhi, revealed as it sweeps round
+    if (p <= 0) return;
+    const R = this.wheelR, xc = this.xwheel, ry = R / ASPECT, yc = this.mallTop - 1 - ry, rot = t * 0.35;
+    for (const side of [-1, 1])
+      for (let j = 1; j < Math.floor(ry) + 3; j++) {
+        if (yc + j >= this.mallTop) break;
+        F.put(yc + j, xc + side * j * 0.6 * R / (ry + 2), side < 0 ? "/" : "\\", C.STEEL);
+      }
+    const n = Math.floor(2 * Math.PI * R * 1.4);
+    for (let i = 0; i < n; i++) {
+      const a = 2 * Math.PI * i / n;
+      if (a / (2 * Math.PI) <= p) F.put(yc + ry * Math.sin(a + rot), xc + R * Math.cos(a + rot), ".", C.RIM);
+    }
+    for (let i = 0; i < 8; i++) {
+      if (i / 8 > p) continue;
+      const a = rot + i * Math.PI / 4, c = dirChar((((a * 180 / Math.PI) % 180) + 180) % 180);
+      for (const f of [0.35, 0.55, 0.75]) F.put(yc + ry * f * Math.sin(a), xc + R * f * Math.cos(a), c, C.SPOKE);
+    }
+    for (let i = 0; i < 16; i++) {
+      const a = rot + i * Math.PI / 8;
+      if (i / 16 <= p) F.put(yc + ry * Math.sin(a), xc + R * Math.cos(a), "o", hsv(i / 16 + t * 0.1, 0.6, 1));
+    }
+    F.put(yc, xc, "@", C.WHITE);
+  }
+
+  light101(F, t, P) {
+    const lp = P.lights;
+    if (lp <= 0) return;
+    const table = [];
+    for (let k = 0; k < 10; k++) {
+      if (P.fireworks > 0) table.push(hsv(0.11 + 0.02 * Math.sin(t * 3 + k), 0.65, 0.75 + 0.25 * Math.sin(t * 9 + k * 1.3)));
+      else if (P.countdown > 0) table.push([0.30, 0.30, 0.30]);
+      else table.push(hsv(k / 10 + 0.05 * t, 0.55, 1));
+    }
+    const cd = P.countdown, keep = (cd > 0 && cd < 1) ? 0.35 : 0.6;
+    for (const i of this.cells101) {
+      if (this.t101.order[i] > P.taipei101) continue;
+      const s = this.segId[i];
+      if (s >= lp * 10) continue;
+      const c = table[s];
+      for (let k = 0; k < 3; k++) F.rgb[3 * i + k] = this.lamp[i] ? c[k] : F.rgb[3 * i + k] * keep + c[k] * 0.35;
+    }
+    if (cd > 0 && cd < 1) {   // the countdown on 101's face
+      const n = 5 - Math.min(4, Math.floor(cd * 5)), pulse = 1 - 0.55 * ((cd * 5) % 1), pw = this.digitPw;
+      const x0 = this.x101 - Math.floor(3 * pw / 2);
+      DIGITS[n].forEach((line, r) => {
+        for (let c = 0; c < 3; c++)
+          for (let q = 0; q < pw; q++)
+            F.put(this.digitY - 2 + r, x0 + c * pw + q, line[c] === "#" ? "#" : " ",
+              line[c] === "#" ? [pulse, 0.95 * pulse, 0.8 * pulse] : C.BLACK);
+      });
+    }
+  }
+
+  drawBlinkers(F, t, P) {
+    for (const [y, x, layer, below, ph] of this.blinkers) {
+      if (below < 0) continue;
+      const p = layer === this.t101 ? P.taipei101 : P.city;
+      if (layer.order[below * this.w + x] <= p && ((t * 1.1 + ph) % 1) < 0.45) F.put(y, x, "*", [1, 0.18, 0.15]);
+    }
+  }
+
+  drawTrain(F, t) {
+    const [a, b] = ST.mrt, start = a + 0.4 * (b - a);
+    if (t < start) return;
+    const body = "<" + "[#=#=#=#]".repeat(this.w >= 80 ? 3 : 2);
+    const speed = 0.22 * this.Sx, span = this.w + body.length + 0.4 * this.w;
+    const x = this.w - ((t - start) * speed) % span, y = this.hz - 3;
+    for (let i = 0; i < body.length; i++) {
+      const c = body[i];
+      F.put(y, x + i, c, c === "<" ? C.WHITE : c === "#" ? [1, 0.86, 0.55] : [0.75, 0.78, 0.86]);
+    }
+    F.put(y, x + body.length, "]", [1, 0.2, 0.15]);
+  }
+
+  drawMeteor(F, t) {
+    const a = t - METEOR;
+    if (!(a >= 0 && a < 1.3)) return;
+    const x0 = 0.66 * this.w, y0 = 0.04 * this.h, x1 = 0.40 * this.w, y1 = 0.30 * this.h, q = a / 1.3;
+    const hx = x0 + (x1 - x0) * q, hy = y0 + (y1 - y0) * q, dx = x1 - x0, dy = (y1 - y0) * ASPECT;
+    const ln = Math.hypot(dx, dy), ux = dx / ln, uy = dy / ln / ASPECT;
+    const c = dirChar((((Math.atan2(dy, dx) * 180 / Math.PI) % 180) + 180) % 180), fade = 1 - q * q;
+    for (let j = 1; j < 12; j++) {
+      const k = (1 - j / 12) * fade;
+      F.put(hy - uy * j, hx - ux * j, c, [0.75 * k, 0.85 * k, k]);
+    }
+    F.put(hy, hx, "*", [fade, fade, fade]);
+  }
+
+  drawFireworks(F, t) {
+    const hz = this.hz, g = 0.08 * this.h;
+    for (const [tb, x, y, d, hue] of this.flares) {
+      const a = t - tb;
+      if (!(a >= 0 && a < 1.1)) continue;
+      for (let j = 0; j < 6; j++) {
+        const aj = a - j * 0.05;
+        if (aj < 0) continue;
+        const f = (1 - Math.exp(-2.5 * aj)) / 2.5;
+        F.spark(y + 0.25 * g * aj * aj, x + d * 0.22 * this.Sx * f, j === 0 ? "=" : "-",
+          hsv(hue, 0.35 + 0.15 * j, (1 - a / 1.1) * (1 - j * 0.14)));
+      }
+    }
+    for (const [tb, x0, y0, hue, ang, spd, life] of this.shells) {
+      const a = t - tb;
+      if (a > -0.8 && a < 0) {   // the rocket climbing
+        const q = 1 + a / 0.8, ry = hz - 1 - (hz - 1 - y0) * (1 - (1 - q) ** 2);
+        F.spark(ry, x0, "|", [1, 0.85, 0.6]);
+        F.spark(ry + 1, x0 + Math.sin(t * 40) * 0.6, ".", [0.6, 0.45, 0.3]);
+        continue;
+      }
+      if (!(a >= 0 && a < life)) continue;
+      const q = a / life;
+      if (a < 0.12) F.spark(y0, x0, "@", C.WHITE);
+      for (const [lag, dim] of [[0, 1], [0.08, 0.45]]) {
+        const al = Math.max(0, a - lag), f = (1 - Math.exp(-1.8 * al)) / 1.8;
+        const c = lag === 0 ? (q < 0.2 ? "*" : q < 0.45 ? "+" : q < 0.75 ? "." : "'") : ".";
+        const rgb = hsv(hue, Math.min(0.85, 0.15 + q * 2.5), Math.pow(1 - q, 1.3) * dim);
+        for (let i = 0; i < ang.length; i++) {
+          if (q > 0.55 && (i * 7 + Math.floor(t * 24)) % 3 === 0) continue;   // glitter
+          const yy = y0 + Math.sin(ang[i]) * spd[i] * f / ASPECT + 0.5 * g * al * al;
+          if (yy < hz - 2) F.spark(yy, x0 + Math.cos(ang[i]) * spd[i] * f, c, rgb);
+        }
+      }
+    }
+  }
+
+  drawRiver(F, t, p) {   // waves on the Tamsui River plus the reflection of everything above
+    if (p <= 0) return;
+    const { h: H, w: W, hz } = this, span = Math.max(H - hz - 1, 1);
+    for (let y = hz; y < H; y++) {
+      const d = (y - hz) / span, edge = p * (W + 6) + 2 * Math.sin(y * 1.7);
+      const my = Math.min(Math.max(2 * hz - 3 - y, 0), hz - 1);
+      for (let x = 0; x < W; x++) {
+        const i = y * W + x;
+        if (!(x < edge)) { F.ch[i] = 32; continue; }
+        const wave = Math.sin(x * 0.42 + y * 1.7 - t * 2) + 0.6 * Math.sin(x * 0.17 - y * 0.9 + t * 1.3);
+        const mx = Math.min(Math.max(x + Math.round(Math.sin(y * 1.3 + t * 2.4 + x * 0.05) * (0.5 + 1.6 * d)), 0), W - 1);
+        const j = my * W + mx, sr = F.rgb[3 * j], sg = F.rgb[3 * j + 1], sb = F.rgb[3 * j + 2];
+        const b = Math.max(sr, sg, sb);
+        if (b > 0.32 && wave + 0.7 * Math.sin(x * 1.1 + t * 3) > -0.9) {
+          const k = 0.75 - 0.4 * d;
+          F.ch[i] = (b > 0.75 ? "|" : b > 0.5 ? "!" : ":").charCodeAt(0);
+          F.rgb[3 * i] = sr * k; F.rgb[3 * i + 1] = sg * k; F.rgb[3 * i + 2] = sb * k;
+        } else {
+          const k = (0.55 + 0.3 * wave) * (1 - 0.45 * d);
+          F.ch[i] = (wave > 1 ? "~" : wave > 0.25 ? "-" : wave > -0.5 ? "." : " ").charCodeAt(0);
+          F.rgb[3 * i] = WATER[0] * k; F.rgb[3 * i + 1] = WATER[1] * k; F.rgb[3 * i + 2] = WATER[2] * k;
+        }
+      }
+    }
+  }
+
+  drawGreeting(F, t, p) {
+    if (p <= 0) return;
+    const msg = `HAPPY NEW YEAR ${this.year}`, n = Math.floor(msg.length * clamp01(p * 4));
+    const y = Math.max(2, Math.round(0.06 * this.h)), x = Math.floor((this.w - msg.length) / 2);
+    for (let i = 0; i < n; i++)
+      F.put(y, x + i, msg[i], hsv(0.12 + 0.02 * Math.sin(t * 2 + i * 0.3), 0.55, 0.85 + 0.15 * Math.sin(t * 6 + i * 0.6)));
+    if (n < msg.length && ((t * 3) % 1) < 0.6) F.put(y, x + n, "_", C.GOLD);
+  }
+
+  drawHud(F, t) {
+    let name = "fade";
+    if (t < FADE) { let best = STAGES[0]; for (const s of STAGES) if (s[1] <= t) best = s; name = best[0]; }
+    const pct = name === "fade" ? 100 : Math.floor(100 * prog(name, t));
+    let n = 0;
+    for (let i = 0; i < F.ch.length; i++) if (F.ch[i] !== 32) n++;
+    const lines = [`taipei.py  stage ${name.padEnd(11)} ${String(pct).padStart(3)}%`,
+      `chars ${n.toLocaleString("en-US").padStart(6)}   t ${t.toFixed(2).padStart(5)}s`];
+    lines.forEach((s, r) => {
+      for (let x = 0; x < Math.min(F.w, s.length + 2); x++) F.ch[r * F.w + x] = 32;
+      F.text(r, 1, s, C.HUD);
+    });
+  }
+}
+
+// ------------------------------------------------------------------ drawing
+const FONT = 'ui-monospace, SFMono-Regular, Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace';
+const CHARS = Array.from({ length: 128 }, (_, i) => String.fromCharCode(i));
+const main = document.getElementById("main"), glow = document.getElementById("glow");
+const ctx = main.getContext("2d"), gctx = glow.getContext("2d");
+let scene, cw, cols, rows, ox, oy, vw, vh, dpr, glowImg, bg;
+
+function layout() {
+  vw = innerWidth; vh = innerHeight;
+  dpr = Math.min(window.devicePixelRatio || 1, 3);
+  cw = Math.min(vw / 60, vh / 52, 12);            // at least 60 columns and 26 rows
+  cols = Math.floor(vw / cw); rows = Math.floor(vh / (2 * cw));
+  ox = (vw - cols * cw) / 2; oy = (vh - rows * 2 * cw) / 2;
+  main.width = Math.round(vw * dpr); main.height = Math.round(vh * dpr);
+  main.style.width = vw + "px"; main.style.height = vh + "px";
+  glow.width = cols; glow.height = rows;
+  Object.assign(glow.style, { left: ox + "px", top: oy + "px", width: cols * cw + "px", height: rows * 2 * cw + "px" });
+  glow.style.setProperty("--blur", (cw * 1.2).toFixed(1) + "px");
+  glowImg = gctx.createImageData(cols, rows);
+  scene = new Scene(cols, rows);
+  const hzY = oy + scene.hz * 2 * cw;
+  bg = ctx.createLinearGradient(0, 0, 0, vh);
+  bg.addColorStop(0, "#03040b");
+  bg.addColorStop(Math.min(0.999, hzY / vh), "#0e0a16");
+  bg.addColorStop(Math.min(1, hzY / vh + 0.001), "#03050a");
+  bg.addColorStop(1, "#020306");
+}
+
+function draw(F) {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = "#03040b";
+  ctx.fillRect(0, 0, vw, vh);
+  ctx.globalAlpha = scene.fade;
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, vw, vh);
+  ctx.globalAlpha = 1;
+  ctx.font = `${(cw / 0.6).toFixed(2)}px ${FONT}`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const groups = new Map(), n = F.w * F.h, d = glowImg.data;
+  for (let i = 0; i < n; i++) {
+    const c = F.ch[i];
+    const r = F.rgb[3 * i], g = F.rgb[3 * i + 1], b = F.rgb[3 * i + 2];
+    const on = c !== 32;
+    d[4 * i] = on ? r * 115 : 0; d[4 * i + 1] = on ? g * 115 : 0; d[4 * i + 2] = on ? b * 115 : 0; d[4 * i + 3] = 255;
+    if (!on || r + g + b < 0.03) continue;
+    const key = ((Math.min(255, r * 255) & 0xF8) << 16) | ((Math.min(255, g * 255) & 0xF8) << 8) | (Math.min(255, b * 255) & 0xF8);
+    let list = groups.get(key);
+    if (!list) groups.set(key, list = []);
+    list.push(i);
+  }
+  for (const [key, list] of groups) {
+    ctx.fillStyle = `rgb(${key >> 16},${(key >> 8) & 255},${key & 255})`;
+    for (const i of list) {
+      const y = (i / F.w) | 0, x = i - y * F.w;
+      ctx.fillText(CHARS[F.ch[i]] || "?", ox + (x + 0.5) * cw, oy + (y + 0.5) * 2 * cw);
+    }
+  }
+  gctx.putImageData(glowImg, 0, 0);
+}
+
+// ------------------------------------------------------------------ clock, sound, input
+const audio = new Audio("music.m4a");
+audio.loop = true;
+audio.preload = "auto";
+const soundBtn = document.getElementById("sound");
+let clock = 0, last = performance.now(), lastDraw = 0, running = true, soundOn = false;
+
+function startAudio() {
+  audio.currentTime = clock % LOOP;
+  return audio.play();
+}
+soundBtn.addEventListener("click", e => {
+  e.stopPropagation();
+  if (soundOn) {
+    audio.pause(); soundOn = false; soundBtn.textContent = "♪ 開聲音";
+    return;
+  }
+  soundOn = true; soundBtn.textContent = "♪ 關聲音";
+  if (running) startAudio().catch(() => { soundOn = false; soundBtn.textContent = "♪ 開聲音"; });
+});
+document.getElementById("src").addEventListener("click", e => e.stopPropagation());
+addEventListener("click", () => {
+  running = !running;
+  document.body.classList.toggle("is-paused", !running);
+  if (!running) audio.pause();
+  else if (soundOn) startAudio().catch(() => {});
+});
+
+function frame(now) {
+  const dt = Math.min(0.1, (now - last) / 1000);
+  last = now;
+  if (running) {
+    if (soundOn && !audio.paused && audio.readyState >= 2) clock = audio.currentTime;
+    else clock += dt;
+  }
+  if (now - lastDraw >= 30) {   // about 30 frames a second is plenty for ASCII
+    lastDraw = now;
+    draw(scene.render(clock));
+  }
+  requestAnimationFrame(frame);
+}
+let resizeTimer;
+addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(layout, 150); });
+layout();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

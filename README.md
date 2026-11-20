@@ -2,11 +2,21 @@
 
 A night view of Taipei drawn stage by stage with coloured ASCII characters, right in your terminal.
 
+**Live demo:** https://baize404.github.io/ascii-taipei/
+
 用彩色 ASCII 字元一筆一筆畫出台北夜景：觀音山、淡水河、圓山大飯店、摩天輪、捷運，最後 101 倒數、放跨年煙火。直接在終端機裡跑。
 
 <img src="preview.png" width="360" alt="ASCII Taipei preview">
 
-▶ [preview.mp4](preview.mp4)（39 秒，9:16）
+▶ [preview.mp4](preview.mp4)（39 秒，9:16，有配樂）
+
+## 網頁版 / Web
+
+直接打開上面的網址，或在本機用瀏覽器開 `index.html`。
+
+- 手機、電腦都能看，畫面大小會自動調整
+- 右下角「♪ 開聲音」播放配樂，聲音和畫面會對齊（煙火爆開的時候剛好有爆炸聲）
+- 點一下畫面可以暫停／繼續
 
 ## 終端機版 / Terminal
 
@@ -28,8 +38,10 @@ python taipei.py --record taipei.mp4 --tag @yourname
 python taipei.py --record still.png --at 33     # 只存一張圖
 ```
 
-預設輸出 1080×1920 的直式影片，整個畫面都是夜景。其他選項：
+預設輸出 1080×1920 的直式影片，整個畫面都是夜景，配上自動產生的配樂。其他選項：
 
+- `--no-music`：不要配樂
+- `--record music.wav`：只輸出配樂
 - `--code`：畫面下方加一個編輯器，把 `taipei.py` 一行一行打出來
 - `--no-hud`：拿掉左上角的階段和時間（終端機版也能用）
 - `--size 1920x1080 --cols 160`：改成橫式
@@ -58,5 +70,15 @@ python taipei.py --record still.png --at 33     # 只存一張圖
 2. 時間軸把整段分成幾個階段。階段進度到 p 時，只顯示順序 ≤ p 的格子，所以山會從左往右掃過來、大樓往上長、101 一層一層蓋。剛出現的格子會先閃一下白光，像筆尖在畫。
 3. 星星、月亮、摩天輪、捷運、流星和煙火每一幀重新計算。最後河面把上方亮著的東西鏡射下來，再用波浪打散成 `|` `!` `:`。
 4. 每一幀用 24-bit ANSI 色碼輸出。錄影模式則把每個字元貼成圖片，加上光暈，再交給 ffmpeg 編碼。
+5. `index.html` 是同一套邏輯的 JavaScript 版本，用 canvas 一格一格畫字。
+
+## 配樂 / Music
+
+配樂是 `taipei.py` 用 numpy 從零合成的原創音樂，沒有用到任何現成的音源或歌曲，可以放心拿去發影片。`music.m4a` 就是它輸出的檔案，網頁版用的也是這一份。
+
+- 和弦是 D 大調的 IV–V–iii–vi（Gmaj7 → A → F#m7 → Bm7），旋律只用五聲音階（Do Re Mi Sol La）
+- 跟著畫面走：星星出現時有小鈴聲；圓山大飯店出現時有一聲鐘響；101 每蓋一節就往上升一個音；亮燈時有一串風鈴，接著鼓聲進來
+- 倒數時鼓停下來，每一秒一聲「滴」，音越來越高，最後一陣上升的噪音；12 點整重拍落下，主旋律出現
+- 煙火的爆炸聲、劈啪聲和升空的哨音，都對準每一發煙火爆開的時間，左右聲道也照煙火在畫面上的位置擺放
 
 Inspired by an ASCII-art reel on Instagram; this is an independent implementation.

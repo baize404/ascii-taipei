@@ -13,6 +13,7 @@ MRT train, Taipei 101 lighting up floor by floor, a countdown and fireworks.
     python taipei.py --record taipei.mp4 --tag @yourname
     python taipei.py --record taipei.mp4 --code   # with the source typing out below
     python taipei.py --record still.png --at 31
+    python taipei.py --record music.wav           # just the soundtrack
 
 How it works
     1. The scene is built once for the terminal size as a stack of layers.
@@ -88,6 +89,24 @@ WATER = np.array([0.10, 0.22, 0.45], np.float32)
 HUD = (0.45, 0.50, 0.64)
 WHITE = (1.00, 1.00, 1.00)
 
+# Fireworks: seconds after the fireworks stage starts, x and y as fractions of
+# the screen, hue, number of sparks, speed. A fixed list (not random) so the
+# terminal, the video, the web page and the soundtrack all agree on when
+# and where every shell bursts.
+SHELLS = [
+    (1.02, 0.161, 0.231, 0.335, 70, 0.235), (1.16, 0.474, 0.336, 0.316, 54, 0.236),
+    (1.43, 0.894, 0.146, 0.779, 69, 0.175), (1.87, 0.656, 0.165, 0.176, 78, 0.193),
+    (2.14, 0.638, 0.398, 0.087, 51, 0.243), (2.32, 0.371, 0.256, 0.555, 50, 0.187),
+    (2.63, 0.814, 0.258, 0.336, 76, 0.229), (3.05, 0.526, 0.157, 0.511, 61, 0.178),
+    (3.19, 0.355, 0.142, 0.702, 52, 0.245), (3.58, 0.164, 0.209, 0.424, 62, 0.241),
+    (4.00, 0.474, 0.163, 0.906, 52, 0.195), (4.17, 0.233, 0.174, 0.744, 73, 0.194),
+    (4.59, 0.660, 0.244, 0.106, 55, 0.192), (4.87, 0.411, 0.260, 0.713, 63, 0.214),
+    (5.13, 0.697, 0.189, 0.559, 65, 0.202), (5.29, 0.806, 0.361, 0.466, 56, 0.181),
+    (5.68, 0.846, 0.323, 0.623, 75, 0.195), (5.93, 0.493, 0.149, 0.619, 70, 0.242),
+    (6.25, 0.642, 0.317, 0.265, 51, 0.195), (6.70, 0.656, 0.396, 0.189, 74, 0.204),
+]
+FINALE_SHELL = (6.10, 0.120, 90, 0.298)   # time, hue, sparks, speed; bursts at 101's spire
+
 DIGITS = {  # 3x5 font for the countdown on Taipei 101's face
     "1": [".#.", "##.", ".#.", ".#.", "###"],
     "2": ["###", "..#", "###", "#..", "###"],
@@ -104,6 +123,12 @@ def clamp01(v):
 def smooth(v):
     v = clamp01(v)
     return v * v * (3 - 2 * v)
+
+
+def hash01(a, b):
+    """Repeatable pseudo-random number in [0, 1); index.html uses the same formula."""
+    v = np.sin(np.asarray(a) * 12.9898 + b * 78.233) * 43758.5453
+    return v - np.floor(v)
 
 
 def stage_progress(name, t):
@@ -203,7 +228,7 @@ class Scene:
         self.hotel, self.hotel_win = self._hotel(rng)
         self.t101 = self._taipei101()
         self.viaduct = self._viaduct()
-        self._fireworks(rng)
+        self._fireworks()
 
     # ---------------------------------------------------------- static parts
     def _stars(self, rng):
@@ -417,7 +442,7 @@ class Scene:
                 L.put(hz - 1, x, "|", TRACK, o)
         return L
 
-    def _fireworks(self, rng):
+    def _fireworks(self):
         W, H, S = self.w, self.h, math.sqrt(self.S * self.Sx)
         t0 = STAGE_T["fireworks"][0]
         self.flares = []   # 101's side-firing flares: (time, x, y, direction, hue)
@@ -429,18 +454,15 @@ class Scene:
                 self.flares.append((tb, xl - 1, y, -1, hh))
                 self.flares.append((tb, xr + 1, y, 1, hh))
         self.shells = []   # (time, x0, y0, hue, angles, speeds, life)
-        for i in range(20):
-            tb = t0 + 0.9 + i * 0.30 + rng.uniform(-0.12, 0.12)
-            n = int(rng.integers(50, 80))
-            ang = np.linspace(0, 2 * math.pi, n, endpoint=False) + rng.uniform(0, 0.3, n)
-            spd = rng.uniform(0.7, 1.0, n) * rng.uniform(0.17, 0.25) * S
-            x0 = rng.uniform(0.08, 0.92) * W
-            y0 = rng.uniform(0.14, 0.40) * H
-            self.shells.append((tb, x0, y0, rng.random(), ang, spd, 1.8))
-        n = 90   # finale: a golden chrysanthemum from the top of 101
-        ang = np.linspace(0, 2 * math.pi, n, endpoint=False)
-        self.shells.append((t0 + 6.1, self.x101, self.spire_top + 2, 0.12, ang,
-                            rng.uniform(0.8, 1.0, n) * 0.30 * S, 2.4))
+        for k, (dt, xf, yf, hue, n, sp) in enumerate(SHELLS):
+            i = np.arange(n)
+            ang = 2 * math.pi * i / n + 0.3 * hash01(i, k)
+            spd = (0.7 + 0.3 * hash01(i + 101, k)) * sp * S
+            self.shells.append((t0 + dt, xf * W, yf * H, hue, ang, spd, 1.8))
+        dt, hue, n, sp = FINALE_SHELL   # a golden chrysanthemum from the top of 101
+        i = np.arange(n)
+        self.shells.append((t0 + dt, self.x101, self.spire_top + 2, hue, 2 * math.pi * i / n,
+                            (0.8 + 0.2 * hash01(i + 101, len(SHELLS))) * sp * S, 2.4))
 
     # ---------------------------------------------------------- per frame
     def frame(self, t):
@@ -759,6 +781,268 @@ def run_terminal(args):
         sys.stdout.flush()
 
 
+# ------------------------------------------------------------------ music
+# An original soundtrack, synthesised from scratch and timed to the stages:
+# a soft pad on the IV-V-iii-vi progression in D major, a rising note for
+# every part of 101, a chime run when the lights come on, ticks for the
+# countdown, then a pentatonic melody with fireworks booming where they burst.
+SR = 44100
+ROYAL = [([55, 59, 62, 66], 43), ([57, 61, 64, 69], 45),   # Gmaj7, A
+         ([54, 57, 61, 64], 42), ([59, 62, 66, 69], 47)]   # F#m7, Bm7
+FINALE = [([62, 66, 69, 74], 38), ([61, 64, 69, 73], 37),  # D, A/C#
+          ([59, 62, 66, 69], 35), ([55, 59, 62, 66], 31)]  # Bm7, Gmaj7
+MELODY = [(0, 74, 1), (1, 76, .5), (1.5, 78, .5), (2, 81, 1.5), (3.5, 78, .5),   # beats, note, length
+          (4, 76, 1), (5, 74, .5), (5.5, 76, .5), (6, 78, 2),
+          (8, 81, 1), (9, 83, .5), (9.5, 81, .5), (10, 78, 1), (11, 76, 1),
+          (12, 74, .5), (12.5, 76, .5), (13, 74, .5), (13.5, 71, .5), (14, 74, 2)]
+PENTA_HIGH = [86, 88, 90, 93, 95]   # D E F# A B, sixth octave
+
+
+def hz(m):
+    return 440.0 * 2 ** ((m - 69) / 12)
+
+
+def tline(dur):
+    return np.arange(int(dur * SR)) / SR
+
+
+def band(x, lo=None, hi=None):
+    """Soft low/high-pass in the frequency domain."""
+    X = np.fft.rfft(x)
+    f = np.fft.rfftfreq(len(x), 1 / SR) + 1e-3
+    if hi:
+        X /= 1 + (f / hi) ** 4
+    if lo:
+        X /= 1 + (lo / f) ** 4
+    return np.fft.irfft(X, len(x))
+
+
+def bell(f, dur=2.5, ratio=3.5, depth=2.2):
+    t = tline(dur)
+    mod = np.sin(2 * np.pi * f * ratio * t) * depth * np.exp(-t / 0.35)
+    return np.sin(2 * np.pi * f * t + mod) * np.exp(-t / 0.8) * np.minimum(1, t / 0.004)
+
+
+def pluck(f, dur=1.2):
+    t = tline(dur)
+    s = sum(np.sin(2 * np.pi * f * k * t) * np.exp(-t * (2.5 + 2.0 * k)) / k for k in range(1, 7))
+    return s * np.minimum(1, t / 0.003)
+
+
+def pad(notes, dur, attack=0.8, release=1.2):
+    t = tline(dur + release)
+    s = np.zeros_like(t)
+    for m in notes:
+        for det in (-0.0018, 0.0, 0.0021):
+            w = 2 * np.pi * hz(m) * (1 + det) * t + det * 900
+            s += np.sin(w) + 0.25 * np.sin(2 * w)
+    env = np.minimum(1, t / attack) * np.clip((dur + release - t) / release, 0, 1)
+    return s * env * (1 + 0.08 * np.sin(2 * np.pi * 0.3 * t)) / (3 * len(notes))
+
+
+def bass(m, dur):
+    t = tline(dur + 0.15)
+    w = 2 * np.pi * hz(m) * t
+    env = (np.minimum(1, t / 0.008) * (0.6 + 0.4 * np.exp(-t / 0.25))
+           * np.clip((dur + 0.15 - t) / 0.15, 0, 1))
+    return np.tanh(1.4 * (np.sin(w) + 0.35 * np.sin(2 * w) + 0.12 * np.sin(3 * w)) * env)
+
+
+def kick():
+    t = tline(0.5)
+    f = 46 + 90 * np.exp(-t / 0.04)
+    return np.sin(2 * np.pi * np.cumsum(f) / SR) * np.exp(-t / 0.20)
+
+
+def noise_hit(rng, dur, tau, lo=None, hi=None):
+    t = tline(dur)
+    n = band(rng.standard_normal(len(t)), lo, hi)
+    return n / (np.abs(n).max() + 1e-9) * np.exp(-t / tau)
+
+
+def snare(rng):
+    t = tline(0.35)
+    return 0.7 * noise_hit(rng, 0.35, 0.09, lo=1200, hi=9000) + 0.5 * np.sin(2 * np.pi * 185 * t) * np.exp(-t / 0.05)
+
+
+def boom(rng, size=1.0):
+    t = tline(2.2)
+    low = np.sin(2 * np.pi * np.cumsum(38 + 60 * np.exp(-t / 0.06)) / SR) * np.exp(-t / (0.35 * size))
+    return 0.8 * low + 0.9 * noise_hit(rng, 2.2, 0.45 * size, hi=320)
+
+
+def crackle(rng, dur, density=60):
+    out = np.zeros(int(dur * SR))
+    click = noise_hit(rng, 0.006, 0.0015, lo=2000)
+    for _ in range(int(density * dur)):
+        u = rng.random() ** 1.6   # more pops early on
+        i = int(u * (len(out) - len(click)))
+        out[i: i + len(click)] += click * rng.uniform(0.3, 1.0) * (1 - u)
+    return out
+
+
+def whistle(dur=0.8):
+    t = tline(dur)
+    f = 900 + 900 * (t / dur) ** 1.5 + 25 * np.sin(2 * np.pi * 11 * t)
+    return np.sin(2 * np.pi * np.cumsum(f) / SR) * np.sin(np.pi * t / dur) ** 2
+
+
+def riser(rng, dur):
+    n = rng.standard_normal(int(dur * SR))
+    chunk = SR // 10
+    out = np.zeros_like(n)
+    for i in range(0, len(n), chunk):
+        cut = 400 * 20 ** (i / len(n))
+        out[i: i + chunk] = band(n[i: i + chunk], lo=200, hi=cut)
+    ramp = (np.arange(len(n)) / len(n)) ** 2
+    return out / (np.abs(out).max() + 1e-9) * ramp
+
+
+def reverb(x, rng, decay=1.8):
+    t = tline(decay * 1.3)
+    ir = band(rng.standard_normal(len(t)), hi=5000) * np.exp(-t * 6.9 / decay)
+    N = 1 << (len(x) + len(ir) - 1).bit_length()
+    y = np.fft.irfft(np.fft.rfft(x, N) * np.fft.rfft(ir, N), N)[: len(x)]
+    return y * (np.sqrt(np.mean(x ** 2)) / (np.sqrt(np.mean(y ** 2)) + 1e-12))
+
+
+def make_music(scene, seed=8):
+    """One loop (LOOP seconds) of stereo audio, as a (2, n) float array."""
+    rng = np.random.default_rng(seed)
+    n = int(LOOP * SR)
+    bus = {"music": np.zeros((2, n)), "sfx": np.zeros((2, n))}
+
+    def add(t, sig, gain=1.0, pan=0.0, to="music"):
+        i = int(round(t * SR))
+        if i >= n:
+            return
+        if i < 0:
+            sig, i = sig[-i:], 0
+        j = min(n, i + len(sig))
+        a = (max(-1.0, min(1.0, pan)) + 1) * math.pi / 4
+        bus[to][0, i:j] += sig[: j - i] * gain * math.cos(a)
+        bus[to][1, i:j] += sig[: j - i] * gain * math.sin(a)
+
+    def groove(t0, t1, gain=1.0):
+        t = t0
+        while t < t1 - 1e-6:
+            for off in (0, 0.75, 1.0):
+                add(t + off, kick(), 0.55 * gain)
+            for off in (0.5, 1.5):
+                add(t + off, snare(rng), 0.22 * gain, 0.1)
+            for k in range(8):
+                add(t + k * 0.25 + (0.03 if k % 2 else 0), noise_hit(rng, 0.08, 0.02, lo=7000),
+                    (0.10 if k % 2 == 0 else 0.06) * gain, -0.3)
+            t += 2.0
+
+    def arp(t0, t1, chords, gain):
+        t, bar = t0, 0
+        while t < t1 - 1e-6:
+            notes = chords[bar % len(chords)][0]
+            seq = notes + [notes[0] + 12]
+            for k, idx in enumerate([0, 1, 2, 3, 4, 3, 2, 1]):
+                add(t + k * 0.25, pluck(hz(seq[idx] + 12)), gain * (1.0 if k % 2 == 0 else 0.7), 0.35 - 0.1 * idx)
+            t += 2.0
+            bar += 1
+
+    def bassline(t0, t1, chords, gain):
+        t, bar = t0, 0
+        while t < t1 - 1e-6:
+            root = chords[bar % len(chords)][1]
+            for off, d in ((0, 0.7), (0.75, 0.2), (1.0, 0.9)):
+                add(t + off, bass(root, d), gain)
+            t += 2.0
+            bar += 1
+
+    # night sky: pad fades in, stars twinkle as little bells
+    for bar in range(12):
+        notes, _ = ROYAL[bar % 4]
+        add(bar * 2.0, pad(notes, 2.0), 0.20 * min(1.0, 0.75 + bar * 0.1), 0.0)
+    add(0.0, bass(43, 1.9), 0.10)
+    for _ in range(12):
+        add(rng.uniform(0.3, 5.8), bell(hz(rng.choice(PENTA_HIGH)), 2.0), 0.09, rng.uniform(-0.8, 0.8))
+    # the city wakes up
+    bassline(6.0, 24.0, ROYAL[3:] + ROYAL[:3], 0.20)
+    arp(6.0, 13.0, ROYAL[3:] + ROYAL[:3], 0.07)
+    add(10.0, bell(hz(45), 4.0, ratio=1.41, depth=1.5), 0.10)   # a temple-gong for the Grand Hotel
+    # Taipei 101 rises: one note per floor block, climbing the pentatonic scale
+    for k, m in enumerate([57, 59, 62, 64, 66, 69, 71, 74, 76, 78]):
+        add(13.0 + k * 0.5, pluck(hz(m)), 0.16, -0.5 + k * 0.1)
+        add(13.0 + k * 0.5, bell(hz(m + 12), 1.2), 0.04, -0.5 + k * 0.1)
+    for k in range(16):   # hats come in, then a snare roll into the lights
+        add(14.0 + k * 0.25, noise_hit(rng, 0.08, 0.02, lo=7000), 0.05, -0.3)
+    for k in range(8):
+        add(17.0 + k * 0.125, snare(rng), 0.05 + 0.03 * k, 0.1)
+    # the lights come on: a chime run, then the beat
+    for k, m in enumerate([74, 76, 78, 81, 83, 86, 88, 90, 93]):
+        add(18.0 + k * 0.1, bell(hz(m), 2.5), 0.10, -0.8 + k * 0.2)
+    add(18.0, noise_hit(rng, 2.5, 1.0, lo=4000), 0.10)
+    groove(18.0, 24.0)
+    arp(18.0, 24.0, ROYAL[1:] + ROYAL[:1], 0.06)
+    # a meteor: a quick falling shimmer
+    for k, m in enumerate([95, 93, 90, 88, 86]):
+        add(METEOR + 0.1 + k * 0.08, bell(hz(m), 1.2), 0.05, 0.3 - k * 0.12)
+    # countdown: suspended chord, ticks that climb, a heartbeat and a riser
+    add(24.0, pad([57, 62, 64, 69], 2.5, attack=0.3, release=0.6), 0.16)
+    add(26.5, pad([57, 61, 64, 67], 2.5, attack=0.3, release=0.4), 0.16)
+    add(24.0, bass(33, 4.9), 0.18)
+    for k, m in enumerate([69, 71, 73, 76, 78]):
+        add(24.0 + k, bell(hz(m), 0.9, ratio=2.0, depth=1.0), 0.20)
+        add(24.0 + k, kick(), 0.35)
+    add(26.0, riser(rng, 3.0), 0.12)
+    # midnight: impact, then the melody over D - A/C# - Bm - G
+    add(29.0, kick(), 0.9)
+    add(29.0, noise_hit(rng, 3.0, 1.1, lo=3000), 0.18)
+    for k, (notes, root) in enumerate(FINALE):
+        add(29.0 + 2 * k, pad(notes, 2.0, attack=0.2), 0.18)
+    bassline(29.0, 37.0, FINALE, 0.22)
+    groove(29.0, 37.0)
+    arp(29.0, 37.0, FINALE, 0.04)
+    for b, m, d in MELODY:
+        add(29.0 + b * 0.5, bell(hz(m), 0.5 + d, ratio=2.0, depth=1.2), 0.22, 0.05)
+        add(29.0 + b * 0.5, pluck(hz(m)), 0.10, -0.05)
+    add(37.0, pad([62, 64, 66, 69, 74], 2.0, attack=0.1, release=1.5), 0.20)
+    add(37.0, bass(38, 1.8), 0.20)
+    add(37.0, bell(hz(86), 3.0), 0.10)
+
+    # fireworks, panned to where they burst
+    for tb, x0, y0, hue, ang, spd, life in scene.shells:
+        pan = 0.85 * (2 * x0 / scene.w - 1)
+        big = life > 2.0
+        add(tb - 0.8, whistle(), 0.025, pan, "sfx")
+        add(tb, boom(rng, 1.6 if big else 1.0), 0.75 if big else rng.uniform(0.35, 0.5), pan, "sfx")
+        add(tb + 0.3, crackle(rng, 2.0 if big else 1.4, 90 if big else 50), 0.22 if big else 0.14, pan, "sfx")
+    for tb in sorted({round(f[0], 2) for f in scene.flares}):
+        add(tb, noise_hit(rng, 0.9, 0.35, lo=2500), 0.04, 0.85 * (2 * scene.x101 / scene.w - 1), "sfx")
+
+    out = np.zeros((2, n))
+    for name, wet in (("music", 0.35), ("sfx", 0.25)):
+        for ch in range(2):
+            x = bus[name][ch]
+            out[ch] += x + wet * reverb(x, rng)
+    t = np.arange(n) / SR
+    fade = np.where(t > FADE, 1 - np.clip((t - FADE) / (LOOP - FADE), 0, 1) ** 1.5, 1.0)
+    out *= fade * np.minimum(1, t / 0.05)
+    out /= np.abs(out).max() + 1e-9
+    return np.tanh(1.6 * out) / np.tanh(1.6) * 0.95
+
+
+def write_wav(path, stereo):
+    import wave
+    pcm = (np.clip(stereo.T, -1, 1) * 32767).astype("<i2")
+    with wave.open(path, "wb") as f:
+        f.setnchannels(2)
+        f.setsampwidth(2)
+        f.setframerate(SR)
+        f.writeframes(pcm.tobytes())
+
+
+def music_for(scene, start, seconds):
+    loop = make_music(scene)
+    idx = (np.round((start + np.arange(int(seconds * SR)) / SR) * SR).astype(np.int64)) % loop.shape[1]
+    return loop[:, idx]
+
+
 # ------------------------------------------------------------------ video
 FONTS = ["DejaVuSansMono.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
          "/System/Library/Fonts/Menlo.ttc", "/Library/Fonts/Menlo.ttc",
@@ -911,10 +1195,21 @@ def record(args):
         Image.fromarray(r.frame(args.at)).save(args.record)
         print(f"saved {args.record}")
         return
+    if args.record.lower().endswith(".wav"):
+        write_wav(args.record, music_for(r.scene, args.at, args.seconds))
+        print(f"saved {args.record}")
+        return
     frames = int(args.seconds * args.fps)
-    cmd = ["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24",
-           "-s", f"{w}x{h}", "-r", str(args.fps), "-i", "-", "-c:v", "libx264", "-preset", "veryfast",
-           "-crf", str(args.crf), "-pix_fmt", "yuv420p", "-movflags", "+faststart", args.record]
+    audio = []
+    if not args.no_music:
+        import tempfile
+        wav = os.path.join(tempfile.mkdtemp(), "music.wav")
+        write_wav(wav, music_for(r.scene, args.at, args.seconds))
+        audio = ["-i", wav, "-map", "0:v", "-map", "1:a", "-c:a", "aac", "-b:a", "192k", "-shortest"]
+    cmd = (["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24",
+            "-s", f"{w}x{h}", "-r", str(args.fps), "-i", "-"] + audio
+           + ["-c:v", "libx264", "-preset", "veryfast", "-crf", str(args.crf), "-pix_fmt", "yuv420p",
+              "-movflags", "+faststart", args.record])
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
     t0 = time.perf_counter()
     for i in range(frames):
@@ -934,7 +1229,9 @@ def main():
     ap.add_argument("--once", action="store_true", help="print one frame and exit")
     ap.add_argument("--256", dest="c256", action="store_true", help="256-colour mode for older terminals")
     ap.add_argument("--tag", default="", help="text under the greeting, e.g. @yourname")
-    ap.add_argument("--record", metavar="FILE", help="render to .mp4 (needs pillow + ffmpeg) or one .png")
+    ap.add_argument("--record", metavar="FILE",
+                    help="render to .mp4 (needs pillow + ffmpeg), one .png, or just the music as .wav")
+    ap.add_argument("--no-music", action="store_true", help="video without the soundtrack")
     ap.add_argument("--seconds", type=float, default=LOOP)
     ap.add_argument("--size", default="1080x1920", help="video size, WIDTHxHEIGHT")
     ap.add_argument("--cols", type=int, default=90, help="character columns in the video")
