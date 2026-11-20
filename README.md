@@ -28,7 +28,11 @@ python taipei.py --record taipei.mp4 --tag @yourname
 python taipei.py --record still.png --at 33     # 只存一張圖
 ```
 
-預設輸出 1080×1920 的直式影片：上方是夜景，下方是編輯器畫面，把 `taipei.py` 一行一行打出來。加 `--no-code` 只錄夜景；加 `--size 1920x1080 --cols 160` 改成橫式。
+預設輸出 1080×1920 的直式影片，整個畫面都是夜景。其他選項：
+
+- `--code`：畫面下方加一個編輯器，把 `taipei.py` 一行一行打出來
+- `--no-hud`：拿掉左上角的階段和時間（終端機版也能用）
+- `--size 1920x1080 --cols 160`：改成橫式
 
 ## 動畫流程 / Timeline
 

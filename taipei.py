@@ -11,6 +11,7 @@ MRT train, Taipei 101 lighting up floor by floor, a countdown and fireworks.
 
     pip install numpy pillow              # plus ffmpeg, to record a video
     python taipei.py --record taipei.mp4 --tag @yourname
+    python taipei.py --record taipei.mp4 --code   # with the source typing out below
     python taipei.py --record still.png --at 31
 
 How it works
@@ -186,10 +187,11 @@ def edge_char(top, left, right):
 
 # ------------------------------------------------------------------ scene
 class Scene:
-    def __init__(self, w, h, tag="", seed=101):
-        self.w, self.h, self.tag = w, h, tag
+    def __init__(self, w, h, tag="", seed=101, hud=True):
+        self.w, self.h, self.tag, self.hud = w, h, tag, hud
         self.hz = int(round(h * 0.70))   # first row of the river
         self.S = h * ASPECT               # scene height measured in columns
+        self.Sx = min(self.S, 1.1 * w)    # size scale that still fits a narrow (phone) screen
         self.x101 = int(round(w * 0.77))
         self.xhotel = int(round(w * 0.22))
         self.xwheel = int(round(w * 0.52))
@@ -223,7 +225,7 @@ class Scene:
         # Guanyin Mountain on the left, lower hills across the rest
         prof = (bump(0.04, 0.07, 0.24) + bump(0.15, 0.06, 0.33) + bump(0.30, 0.08, 0.25)
                 + bump(0.42, 0.06, 0.10) + bump(0.62, 0.20, 0.05) + bump(0.95, 0.09, 0.10) + 0.02)
-        ridge = np.clip(np.round(hz - 1 - prof * H).astype(int), 1, hz - 1)
+        ridge = np.clip(np.round(hz - 1 - prof * self.Sx / ASPECT).astype(int), 1, hz - 1)
         for xi in range(W):
             top = ridge[xi]
             left = ridge[xi - 1] if xi > 0 else top
@@ -278,7 +280,7 @@ class Scene:
             self._building(L, win, rng, x, bw, bh, rng.uniform(0, 0.62))
             x += bw + int(rng.integers(0, 2))
         # the mall under the Ferris wheel
-        self.wheel_r = max(4, int(round(0.07 * self.S)))
+        self.wheel_r = max(4, int(round(0.07 * self.Sx)))
         mw = 2 * self.wheel_r + 5
         self.mall_top = hz - 4
         self._building(L, win, rng, self.xwheel - mw // 2, mw, 4, 0.6)
@@ -289,7 +291,7 @@ class Scene:
         W, H, hz = self.w, self.h, self.hz
         L, win = Layer(H, W), Layer(H, W)
         xc = self.xhotel
-        a, b = max(10, round(0.19 * self.S)), max(3, round(0.08 * H))
+        a, b = max(10, round(0.19 * self.Sx)), max(3, round(0.08 * H))
         tops = {}
         for x in range(xc - a - 1, xc + a + 2):
             u = (x - xc) / a
@@ -307,7 +309,7 @@ class Scene:
                 else:
                     L.put(y, x, " ", (0, 0, 0), o)
 
-        hw = max(6, round(0.115 * self.S))
+        hw = max(6, round(0.115 * self.Sx))
         nb = max(2, round(0.045 * H))
         spec = ([("base", hw + 1)] + [("body", hw)] * nb
                 + [("eave", hw + 2), ("roof", round(hw * 0.82)), ("floor", round(hw * 0.55)),
@@ -416,7 +418,7 @@ class Scene:
         return L
 
     def _fireworks(self, rng):
-        W, H, S = self.w, self.h, self.S
+        W, H, S = self.w, self.h, math.sqrt(self.S * self.Sx)
         t0 = STAGE_T["fireworks"][0]
         self.flares = []   # 101's side-firing flares: (time, x, y, direction, hue)
         for wave, (start, step, hue) in enumerate([(0.0, 0.10, 0.12), (2.6, -0.10, 0.58), (5.0, 0.08, -1)]):
@@ -464,7 +466,8 @@ class Scene:
         self._draw_greeting(cv, t, P["new_year"])
         if t > FADE:
             cv.rgb *= 1 - smooth((t - FADE) / (LOOP - FADE))
-        self._draw_hud(cv, t)
+        if self.hud:
+            self._draw_hud(cv, t)
         return cv
 
     def _draw_stars(self, cv, t, p):
@@ -475,7 +478,7 @@ class Scene:
                 cv.put(y, x, c, tuple(v * (0.35 + 0.65 * b) for v in STAR))
 
     def _draw_moon(self, cv, t):
-        r = max(4.0, 0.075 * self.S)
+        r = max(4.0, 0.075 * self.Sx)
         xm = 0.37 * self.w
         y_end = 0.20 * self.h
         ym = self.hz - 1 - (self.hz - 1 - y_end) * smooth(t / 6.0)
@@ -571,7 +574,7 @@ class Scene:
             return
         cars = 3 if self.w >= 80 else 2
         body = "<" + "[#=#=#=#]" * cars
-        speed = 0.22 * self.S
+        speed = 0.22 * self.Sx
         span = self.w + len(body) + 0.4 * self.w
         x = self.w - ((t - start) * speed) % span
         y = self.hz - 3
@@ -615,7 +618,7 @@ class Scene:
                 if aj < 0:
                     continue
                 f = (1 - math.exp(-2.5 * aj)) / 2.5
-                px = x + d * 0.22 * self.S * f
+                px = x + d * 0.22 * self.Sx * f
                 py = y + 0.25 * g * aj * aj
                 k = (1 - a / 1.1) * (1 - j * 0.14)
                 rgb = hsv(hue, 0.35 + 0.15 * j, k)
@@ -733,7 +736,7 @@ def run_terminal(args):
         os.system("")   # turn on ANSI escape codes in the Windows console
     if args.once:
         w, h = terminal_size(args)
-        sys.stdout.write(to_ansi(Scene(w, h, args.tag).frame(args.at), args.c256) + "\n")
+        sys.stdout.write(to_ansi(Scene(w, h, args.tag, hud=not args.no_hud).frame(args.at), args.c256) + "\n")
         return
     write = sys.stdout.write
     write("\x1b[?1049h\x1b[?25l\x1b[2J")
@@ -743,7 +746,7 @@ def run_terminal(args):
             start = time.perf_counter()
             w, h = terminal_size(args)
             if scene is None or (scene.w, scene.h) != (w, h):
-                scene = Scene(w, h, args.tag)
+                scene = Scene(w, h, args.tag, hud=not args.no_hud)
                 write("\x1b[2J")
             t = args.at + (start - t0) * args.speed
             write("\x1b[H" + to_ansi(scene.frame(t), args.c256))
@@ -856,7 +859,7 @@ class CodePanel:
 
 
 class Renderer:
-    def __init__(self, width, height, cols, tag, font_path=None, code=True):
+    def __init__(self, width, height, cols, tag, font_path=None, code=False, hud=True):
         from PIL import Image, ImageDraw
         self.W, self.H = width, height
         self.cw = width // cols
@@ -864,7 +867,7 @@ class Renderer:
         font = load_font(int(self.cw / 0.6), font_path)
         scene_px = int(height * (0.62 if code else 1.0))
         rows = scene_px // self.chh
-        self.scene = Scene(cols, rows, tag)
+        self.scene = Scene(cols, rows, tag, hud=hud)
         self.sw, self.sh = cols * self.cw, rows * self.chh
         self.x0 = (width - self.sw) // 2
         atlas = np.zeros((95, self.chh, self.cw), np.float32)
@@ -902,7 +905,7 @@ class Renderer:
 
 def record(args):
     w, h = (int(v) for v in args.size.lower().split("x"))
-    r = Renderer(w, h, args.cols, args.tag, args.font, code=not args.no_code)
+    r = Renderer(w, h, args.cols, args.tag, args.font, code=args.code, hud=not args.no_hud)
     if args.record.lower().endswith(".png"):
         from PIL import Image
         Image.fromarray(r.frame(args.at)).save(args.record)
@@ -937,7 +940,8 @@ def main():
     ap.add_argument("--cols", type=int, default=90, help="character columns in the video")
     ap.add_argument("--crf", type=int, default=20)
     ap.add_argument("--font", help="monospace .ttf/.ttc for the video")
-    ap.add_argument("--no-code", action="store_true", help="video without the code panel")
+    ap.add_argument("--code", action="store_true", help="add a panel that types out this file under the view")
+    ap.add_argument("--no-hud", action="store_true", help="hide the stage / time readout in the corner")
     args = ap.parse_args()
     if args.at is None:
         args.at = 31.0 if args.once or (args.record or "").lower().endswith(".png") else 0.0
